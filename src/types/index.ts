@@ -10,6 +10,7 @@ export interface Message {
     content: string;
     timestamp: string;
     is_ai_generated: boolean;
+    is_from_business: boolean;
 }
 
 export interface Chat {

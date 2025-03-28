@@ -1,17 +1,17 @@
 import api from './api';
 import { User } from '../types';
 
-export const handleCallback = async (code: string): Promise<{token: string, user_id: string}> => {
+export const handleCallback = async (code: string): Promise<{token: string, app_user_id: string}> => {
   try {
     // Try to exchange code for token using the correct endpoint
     const response = await api.post('/auth/token', { code });
-    const { access_token, user_id } = response.data;
+    const { access_token, app_user_id } = response.data;
     
     // Store the token and user ID
     localStorage.setItem('accessToken', access_token);
-    localStorage.setItem('instagram_user_id', user_id);
+    localStorage.setItem('instagram_user_id', app_user_id);
     
-    return { token: access_token, user_id };
+    return { token: access_token, app_user_id };
   } catch (error) {
     console.warn('Token exchange failed:', error);
     

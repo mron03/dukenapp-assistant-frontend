@@ -322,7 +322,7 @@
   
   .message.self {
     align-self: flex-end;
-    background-color: #efefef;
+    background-color: #d1ffd6;
     margin-left: auto;
     border-bottom-right-radius: 4px;
   }
@@ -335,7 +335,7 @@
   }
   
   .message.ai {
-    background-color: #e6f3ff;
+    background-color: #d1ffd6;
   }
   
   .ai-indicator {

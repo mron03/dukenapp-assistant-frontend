@@ -41,7 +41,7 @@ const ChatWindow: React.FC = () => {
           <div className="empty-state">No messages yet</div>
         ) : (
           activeChat.messages.map((message) => {
-            const isSelf = message.sender_id === authState.user?.id;
+            const isSelf = message.is_from_business;
             
             return (
               <div

@@ -1,3 +1,4 @@
+// src/contexts/ChatContext.tsx
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { Chat, Message } from '../types';
 import { getChats, getChatMessages, sendMessage, toggleAI } from '../services/chat';
@@ -29,14 +30,16 @@ const MOCK_CHATS: Chat[] = [
         sender_id: "user1",
         content: "Hey, I'm interested in your product!",
         timestamp: new Date(Date.now() - 3600000).toISOString(),
-        is_ai_generated: false
+        is_ai_generated: false,
+        is_from_business: false
       },
       {
         id: "msg2",
         sender_id: "admin",
         content: "Thanks for reaching out! What would you like to know?",
         timestamp: new Date(Date.now() - 3500000).toISOString(),
-        is_ai_generated: false
+        is_ai_generated: false,
+        is_from_business: true
       }
     ],
     is_ai_active: true,
@@ -45,7 +48,8 @@ const MOCK_CHATS: Chat[] = [
       sender_id: "admin",
       content: "Thanks for reaching out! What would you like to know?",
       timestamp: new Date(Date.now() - 3500000).toISOString(),
-      is_ai_generated: false
+      is_ai_generated: false,
+      is_from_business: true
     },
     unread_count: 0
   }
@@ -86,6 +90,107 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     };
 
     fetchChats();
+  }, []);
+
+  const normalizeTimestamp = (timestamp: string): string => {
+    if (!timestamp) {
+      return new Date().toISOString();
+    }
+    
+    try {
+      // Check if the timestamp is valid by creating a Date object
+      const date = new Date(timestamp);
+      
+      // If the date is invalid, use current time
+      if (isNaN(date.getTime())) {
+        console.warn(`Invalid timestamp format: ${timestamp}, using current time`);
+        return new Date().toISOString();
+      }
+      
+      return date.toISOString();
+    } catch (error) {
+      console.warn(`Error processing timestamp: ${timestamp}`, error);
+      return new Date().toISOString();
+    }
+  };
+  // WebSocket integration for real-time chat updates
+  useEffect(() => {
+    // Adjust the URL if necessary
+    const ws = new WebSocket("ws://localhost:8001/api/v1/ws/chats");
+
+    ws.onopen = () => {
+      console.log("WebSocket connected");
+    };
+
+   
+    // Updated WebSocket message handler
+  ws.onmessage = (event) => {
+    try {
+      const data = JSON.parse(event.data);
+      const { conversation_id, new_message } = data;
+      
+      // Normalize timestamp to ensure it's in a valid format
+      if (new_message && new_message.created_at) {
+        new_message.timestamp = normalizeTimestamp(new_message.created_at);
+      } else if (new_message) {
+        new_message.timestamp = new Date().toISOString();
+      }
+      
+      // Format the message for frontend
+      const formattedMessage = new_message ? {
+        id: new_message.id || `temp_${Date.now()}`,
+        sender_id: new_message.from?.id || "unknown",
+        content: new_message.content || "",
+        timestamp: new_message.timestamp,
+        is_ai_generated: !!new_message.is_ai_generated,
+        is_from_business: !!new_message.is_from_business,
+      } : null;
+      
+      if (!formattedMessage) {
+        console.error("Invalid message format received from WebSocket");
+        return;
+      }
+
+      // Update chats state with the new message
+      setChats((prevChats) =>
+        prevChats.map((chat) =>
+          chat.id === conversation_id
+            ? {
+                ...chat,
+                messages: [...(chat.messages || []), formattedMessage],
+                last_message: formattedMessage,
+              }
+            : chat
+        )
+      );
+
+      // Also update activeChat if it matches
+      setActiveChat((prevActive) => {
+        if (prevActive && prevActive.id === conversation_id) {
+          return {
+            ...prevActive,
+            messages: [...(prevActive.messages || []), formattedMessage],
+            last_message: formattedMessage,
+          };
+        }
+        return prevActive;
+      });
+    } catch (error) {
+      console.error("Error processing WebSocket message:", error);
+    }
+  };
+
+    ws.onerror = (error) => {
+      console.error("WebSocket error:", error);
+    };
+
+    ws.onclose = () => {
+      console.log("WebSocket connection closed");
+    };
+
+    return () => {
+      ws.close();
+    };
   }, []);
 
   // Function to set active chat and load its messages
@@ -140,7 +245,8 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         sender_id: "admin", // The business account
         content,
         timestamp: new Date().toISOString(),
-        is_ai_generated: false
+        is_ai_generated: false,
+        is_from_business: true // This will be the business account
       };
       
       // Update UI immediately with temporary message
@@ -180,16 +286,13 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           prevChats.map(chat => chat.id === activeChat.id ? finalChat : chat)
         );
         
-        // If AI is active, the backend will automatically generate a response
-        // We'll need to poll for new messages or implement websockets for real-time updates
+        // If AI is active, the backend will automatically generate a response.
         if (activeChat.is_ai_active) {
-          // For now, we'll just show a simulated response after a delay
           setTimeout(async () => {
             try {
               // Fetch latest messages to get AI response
               const latestMessages = await getChatMessages(activeChat.id);
               
-              // Update chat with latest messages including AI response
               const chatWithAIResponse = {
                 ...finalChat,
                 messages: latestMessages,
@@ -198,7 +301,6 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
               
               setActiveChat(chatWithAIResponse);
               
-              // Update all chats list
               setChats(prevChats => 
                 prevChats.map(chat => chat.id === activeChat.id ? chatWithAIResponse : chat)
               );
@@ -209,7 +311,6 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         }
       } catch (error) {
         console.error('Error sending message:', error);
-        // Message already shown in UI with temporary ID
         setError('Failed to send message. Please try again.');
       }
     } catch (err) {
