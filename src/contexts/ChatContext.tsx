@@ -116,7 +116,29 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   // WebSocket integration for real-time chat updates
   useEffect(() => {
     // Adjust the URL if necessary
-    const ws = new WebSocket("ws://localhost:8001/api/v1/ws/chats");
+    let wsUrl;
+  
+    // Check if we have an environment variable
+    if (process.env.REACT_APP_WS_URL) {
+      wsUrl = process.env.REACT_APP_WS_URL;
+    } else {
+      // Derive from API URL or hostname
+      const hostname = window.location.hostname;
+      
+      if (hostname === 'dukenapp-assistant-frontend.vercel.app') {
+        // Production
+        wsUrl = 'wss://dukenapp.com:8443/api/v1/ws/chats';
+      } else if (hostname.includes('ngrok')) {
+        // Ngrok tunnel
+        wsUrl = `wss://${hostname}/api/v1/ws/chats`;
+      } else {
+        // Local development
+        wsUrl = 'ws://localhost:8001/api/v1/ws/chats';
+      }
+    }
+    
+    console.log('Connecting to WebSocket:', wsUrl);
+    const ws = new WebSocket(wsUrl);
 
     ws.onopen = () => {
       console.log("WebSocket connected");
