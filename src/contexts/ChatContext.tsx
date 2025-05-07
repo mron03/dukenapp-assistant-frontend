@@ -1,4 +1,3 @@
-// src/contexts/ChatContext.tsx
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { Chat, Message } from '../types';
 import { getChats, getChatMessages, sendMessage, toggleAI } from '../services/chat';
@@ -60,6 +59,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [activeChat, setActiveChat] = useState<Chat | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const [pollingInterval, setPollingInterval] = useState<NodeJS.Timeout | null>(null);
 
   // Load all chats on initial render
   useEffect(() => {
@@ -71,7 +71,6 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         try {
           // Try to get real chats from API
           fetchedChats = await getChats();
-          console.log('Fetched chats from API:', fetchedChats);
           setChats(fetchedChats);
         } catch (error) {
           console.warn('Failed to fetch chats from API, using mock data:', error);
@@ -91,6 +90,53 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     fetchChats();
   }, []);
+
+  // Poll for new messages when a chat is active
+  useEffect(() => {
+    if (activeChat) {
+      const pollForNewMessages = async () => {
+        try {
+          const messages = await getChatMessages(activeChat.id);
+          
+          // Check if we have new messages - if the total length is different or the last message ID is different
+          const lastMessageId = activeChat.messages[activeChat.messages.length - 1]?.id;
+          const newLastMessageId = messages[messages.length - 1]?.id;
+          
+          if (messages.length > activeChat.messages.length || (newLastMessageId && lastMessageId !== newLastMessageId)) {
+            console.log('New messages found, updating chat');
+            
+            // Update active chat with new messages
+            setActiveChat({
+              ...activeChat,
+              messages
+            });
+            
+            // Update chats list
+            setChats(prevChats =>
+              prevChats.map(chat =>
+                chat.id === activeChat.id
+                  ? { ...chat, messages, last_message: messages[messages.length - 1] }
+                  : chat
+              )
+            );
+          }
+        } catch (error) {
+          console.error('Error polling for new messages:', error);
+        }
+      };
+      
+      // Poll every 3 seconds
+      const interval = setInterval(pollForNewMessages, 3000);
+      
+      // Store the interval ID so we can clear it later
+      setPollingInterval(interval);
+      
+      // Clean up the interval when the component unmounts or when the active chat changes
+      return () => {
+        clearInterval(interval);
+      };
+    }
+  }, [activeChat]);
 
   const normalizeTimestamp = (timestamp: string): string => {
     if (!timestamp) {
@@ -113,107 +159,6 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       return new Date().toISOString();
     }
   };
-  // WebSocket integration for real-time chat updates
-  useEffect(() => {
-    // Adjust the URL if necessary
-    let wsUrl;
-  
-    // Check if we have an environment variable
-    if (process.env.REACT_APP_WS_URL) {
-      wsUrl = process.env.REACT_APP_WS_URL;
-    } else {
-      // Derive from API URL or hostname
-      const hostname = window.location.hostname;
-      
-      if (hostname === 'dukenapp-assistant-frontend.vercel.app') {
-        // Production
-        wsUrl = 'wss://dukenapp.com:8443/api/v1/ws/chats';
-      } else if (hostname.includes('ngrok')) {
-        // Ngrok tunnel
-        wsUrl = `wss://${hostname}/api/v1/ws/chats`;
-      } else {
-        // Local development
-        wsUrl = 'ws://localhost:8001/api/v1/ws/chats';
-      }
-    }
-    
-    console.log('Connecting to WebSocket:', wsUrl);
-    const ws = new WebSocket(wsUrl);
-
-    ws.onopen = () => {
-      console.log("WebSocket connected");
-    };
-
-   
-    // Updated WebSocket message handler
-  ws.onmessage = (event) => {
-    try {
-      const data = JSON.parse(event.data);
-      const { conversation_id, new_message } = data;
-      
-      // Normalize timestamp to ensure it's in a valid format
-      if (new_message && new_message.created_at) {
-        new_message.timestamp = normalizeTimestamp(new_message.created_at);
-      } else if (new_message) {
-        new_message.timestamp = new Date().toISOString();
-      }
-      
-      // Format the message for frontend
-      const formattedMessage = new_message ? {
-        id: new_message.id || `temp_${Date.now()}`,
-        sender_id: new_message.from?.id || "unknown",
-        content: new_message.content || "",
-        timestamp: new_message.timestamp,
-        is_ai_generated: !!new_message.is_ai_generated,
-        is_from_business: !!new_message.is_from_business,
-      } : null;
-      
-      if (!formattedMessage) {
-        console.error("Invalid message format received from WebSocket");
-        return;
-      }
-
-      // Update chats state with the new message
-      setChats((prevChats) =>
-        prevChats.map((chat) =>
-          chat.id === conversation_id
-            ? {
-                ...chat,
-                messages: [...(chat.messages || []), formattedMessage],
-                last_message: formattedMessage,
-              }
-            : chat
-        )
-      );
-
-      // Also update activeChat if it matches
-      setActiveChat((prevActive) => {
-        if (prevActive && prevActive.id === conversation_id) {
-          return {
-            ...prevActive,
-            messages: [...(prevActive.messages || []), formattedMessage],
-            last_message: formattedMessage,
-          };
-        }
-        return prevActive;
-      });
-    } catch (error) {
-      console.error("Error processing WebSocket message:", error);
-    }
-  };
-
-    ws.onerror = (error) => {
-      console.error("WebSocket error:", error);
-    };
-
-    ws.onclose = () => {
-      console.log("WebSocket connection closed");
-    };
-
-    return () => {
-      ws.close();
-    };
-  }, []);
 
   // Function to set active chat and load its messages
   const selectActiveChat = async (chatId: string) => {
@@ -309,28 +254,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         );
         
         // If AI is active, the backend will automatically generate a response.
-        if (activeChat.is_ai_active) {
-          setTimeout(async () => {
-            try {
-              // Fetch latest messages to get AI response
-              const latestMessages = await getChatMessages(activeChat.id);
-              
-              const chatWithAIResponse = {
-                ...finalChat,
-                messages: latestMessages,
-                last_message: latestMessages[latestMessages.length - 1]
-              };
-              
-              setActiveChat(chatWithAIResponse);
-              
-              setChats(prevChats => 
-                prevChats.map(chat => chat.id === activeChat.id ? chatWithAIResponse : chat)
-              );
-            } catch (error) {
-              console.warn('Failed to fetch AI response:', error);
-            }
-          }, 2000);
-        }
+        // We'll get that response in our polling mechanism.
       } catch (error) {
         console.error('Error sending message:', error);
         setError('Failed to send message. Please try again.');

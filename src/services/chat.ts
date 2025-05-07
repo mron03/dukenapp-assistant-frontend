@@ -134,3 +134,29 @@ export const refreshChats = async (): Promise<void> => {
     throw error;
   }
 };
+
+// Add a polling function to check for new messages
+export const pollForNewMessages = async (chatId: string): Promise<Message[]> => {
+  try {
+    const app_user_id = localStorage.getItem('instagram_user_id');
+    if (!app_user_id) {
+      throw new Error('No app_user_id found. Please log in again.');
+    }
+    
+    // Get messages for this chat
+    const response = await api.get(`/chats/${chatId}`, {
+      params: {
+        app_user_id
+      }
+    });
+    
+    if (response.data && response.data.messages) {
+      return response.data.messages;
+    }
+    
+    return [];
+  } catch (error) {
+    console.error('Error polling for new messages:', error);
+    throw error;
+  }
+};
