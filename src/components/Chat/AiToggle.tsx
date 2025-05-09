@@ -8,7 +8,7 @@ interface AiToggleProps {
 
 const AiToggle: React.FC<AiToggleProps> = ({ chatId, isActive }) => {
   const { toggleAIActive } = useChat();
-  const [toggling, setToggling] = useState(false);
+  const [toggling, setToggling] = useState(true);
 
   const handleToggle = async () => {
     if (toggling) return;
