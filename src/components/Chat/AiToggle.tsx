@@ -14,7 +14,7 @@ const AiToggle: React.FC<AiToggleProps> = ({ chatId, isActive }) => {
     if (toggling) return;
     
     try {
-      setToggling(true);
+      setToggling(false);
       await toggleAIActive(chatId, !isActive);
     } catch (error) {
       console.error('Error toggling AI:', error);
